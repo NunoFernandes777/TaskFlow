@@ -4,13 +4,14 @@ metadata:
   name: taskflow-frontend
   namespace: taskflow-production
 spec:
-  type: LoadBalancer
+  type: NodePort
   selector:
     app: taskflow-frontend
   ports:
     - name: http
       port: 80
       targetPort: 80
+      nodePort: 30090
 ---
 apiVersion: v1
 kind: Service

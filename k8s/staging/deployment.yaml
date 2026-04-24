@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: taskflow-frontend
-          image: ghcr.io/your-org-or-user/taskflow-frontend:staging
+          image: docker.io/nunofernandes777/taskflow-frontend:latest
           ports:
             - containerPort: 80
           env:
@@ -71,7 +71,7 @@ spec:
     spec:
       containers:
         - name: taskflow-backend
-          image: ghcr.io/your-org-or-user/taskflow-backend:staging
+          image: docker.io/nunofernandes777/taskflow-backend:latest
           ports:
             - containerPort: 3001
           envFrom:

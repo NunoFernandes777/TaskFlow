@@ -89,45 +89,98 @@ npm run lint
 ## CI/CD GitHub Actions
 - Fichier: `.github/workflows/ci.yml`
 
-### Pipeline
-1. `backend-quality`
-   - installe Node 20
-   - lance `npm ci`, `npm test`, `npm run lint`
-2. `security-scan`
-   - build des images backend et frontend
-   - scan Trivy en severites `HIGH,CRITICAL`
-   - publication des rapports SARIF dans GitHub Security
-3. `publish-images`
-   - build et push vers GHCR sur `main`
-   - tags pushes: `sha` et `latest`
-4. `deploy-staging`
-   - `kubectl apply -f k8s/staging`
-   - mise a jour des images vers le tag du commit
-5. `deploy-production`
-   - meme mecanisme vers `k8s/production`
-   - peut etre protegee par l'environnement GitHub `production`
+### Declencheurs
+1. `push` sur `main`
+2. `push` sur `staging`
+3. `pull_request` vers `main`
+4. tags `v*`
+
+### Pipeline implemente
+1. `test`
+   - execution des tests backend en parallele sur Node 18 et Node 20
+   - pipeline rouge si un test echoue
+2. `lint`
+   - lance `npm run lint` dans `backend/`
+   - job bloquant apres `test`
+3. `audit`
+   - lance `npm audit --audit-level=high` dans `backend/`
+   - job bloquant apres `test`
+   - export du rapport JSON en artefact si echec
+4. `build`
+   - execute uniquement sur tag `v*`
+   - build les images backend et frontend
+   - genere un rapport Trivy SARIF
+   - applique une gate Trivy bloquante uniquement sur les vulnerabilites `CRITICAL`
+   - pousse les images sur Docker Hub avec le tag de version
+5. `publish-staging-images`
+   - execute uniquement sur `push` vers `staging`
+   - pousse les images backend et frontend avec le tag `latest`
+   - permet un flux de livraison continue vers l'environnement de staging
+6. `deploy-staging`
+   - applique les manifests `k8s/staging`
+   - met a jour les Deployments avec les images `latest`
+   - attend le `rollout status`
+7. `smoke-test`
+   - execute apres `deploy-staging`
+   - attend que le backend soit pret
+   - fait un `kubectl port-forward`
+   - verifie `GET /health` et la presence de `status: ok`
+8. `deploy-production`
+   - execute uniquement sur tag `v*`
+   - applique `k8s/production`
+   - met a jour les images backend/frontend avec le tag de release
+   - attend le `rollout status` en production
+
+### Choix d'implementation
+1. **Staging sur push de branche**
+   - le staging est alimente par `push` sur la branche `staging`
+   - ce choix permet de tester rapidement la chaine de livraison sans attendre une release
+2. **Production sur tag**
+   - la production n'est deployee que sur un tag `v*`
+   - ce choix force une promotion explicite et tracee
+3. **Scan Trivy en deux temps**
+   - un rapport SARIF est genere pour la documentation et la soutenance
+   - une seconde commande Trivy en CLI sert de gate reelle
+   - cela evite les faux positifs lies a l'interpretation du statut du job SARIF
 
 ### Secrets GitHub attendus
-1. `KUBE_CONFIG_STAGING`: kubeconfig staging encode en base64.
-2. `KUBE_CONFIG_PRODUCTION`: kubeconfig production encode en base64.
+1. `DOCKERHUB_USERNAME`
+2. `DOCKERHUB_TOKEN`
+3. `KUBE_CONFIG_STAGING`
+4. `KUBE_CONFIG_PRODUCTION`
 
-Le `GITHUB_TOKEN` suffit pour pousser sur GHCR si le repository autorise les packages.
+### Validation realisee
+1. les jobs `test`, `lint` et `audit` passent en local
+2. le flux `staging` a ete execute avec succes jusqu'au `smoke-test`
+3. le flux `tag` a ete teste avec build, scan, push et deploiement production
 
 ## Kubernetes
 
 ### Staging
 - Namespace: `taskflow-staging`
-- 1 replica frontend
-- 1 replica backend
-- 1 replica Redis
-- PVC Redis: `1Gi`
-
-### Production
-- Namespace: `taskflow-production`
 - 2 replicas frontend
 - 2 replicas backend
 - 1 replica Redis
+- PVC Redis: `1Gi`
+- Strategie: `RollingUpdate` avec `maxUnavailable: 0` et `maxSurge: 1`
+
+Justification:
+- en staging, nous avons privilegie la disponibilite pendant les demonstrations
+- `maxUnavailable: 0` garantit zero interruption visible pendant un rolling update
+- le cout est un deploiement un peu plus lent et un besoin temporaire de capacite supplementaire
+
+### Production
+- Namespace: `taskflow-production`
+- 3 replicas frontend
+- 3 replicas backend
+- 1 replica Redis
 - PVC Redis: `5Gi`
+- Strategie: `RollingUpdate` avec `maxUnavailable: 1` et `maxSurge: 1`
+
+Justification:
+- en production, nous avons choisi un compromis entre vitesse et disponibilite
+- `maxUnavailable: 1` autorise la rotation d'un pod a la fois sans couper totalement le service
+- `maxSurge: 1` limite la surconsommation de ressources tout en gardant une transition fluide
 
 ### Manifests fournis par environnement
 1. `namespace.yaml`
@@ -139,7 +192,7 @@ Le `GITHUB_TOKEN` suffit pour pousser sur GHCR si le repository autorise les pac
 7. `networkpolicy.yaml`
 
 ### Exposition reseau
-1. `taskflow-frontend`: `LoadBalancer`
+1. `taskflow-frontend`: `NodePort`
 2. `taskflow-backend`: `ClusterIP`
 3. `taskflow-redis`: `ClusterIP`
 
