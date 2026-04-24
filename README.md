@@ -1,5 +1,7 @@
 # TaskFlow
 
+[![CI/CD Pipeline](https://github.com/[owner]/taskflow/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/[owner]/taskflow/actions/workflows/ci.yml)
+
 Application web de gestion de tâches. Interface Kanban avec backend Node.js et persistance Redis.
 
 ## Stack technique
