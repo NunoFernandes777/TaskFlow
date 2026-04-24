@@ -4,7 +4,12 @@ metadata:
   name: taskflow-frontend
   namespace: taskflow-staging
 spec:
-  replicas: 1
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: taskflow-frontend
@@ -50,7 +55,12 @@ metadata:
   name: taskflow-backend
   namespace: taskflow-staging
 spec:
-  replicas: 1
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: taskflow-backend

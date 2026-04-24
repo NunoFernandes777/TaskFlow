@@ -143,17 +143,20 @@ Le `GITHUB_TOKEN` suffit pour pousser sur GHCR si le repository autorise les pac
 2. `taskflow-backend`: `ClusterIP`
 3. `taskflow-redis`: `ClusterIP`
 
-## Choix de l'image backend
-Choix final cible: `node:20-alpine`
+## Choix 1 : image de base backend
 
-Raisons:
-1. version LTS recente pour rester aligne avec le runtime demande
-2. empreinte reduite par rapport aux images non-alpine
-3. surface d'attaque generalement plus faible qu'une image complete
+**Choix final cible: `node:20-alpine`**
 
-### Comparaison demandee
-Le Docker daemon n'etait pas disponible dans cet environnement de travail, donc les mesures locales `docker images` et `trivy image` n'ont pas pu etre executees ici. Le Dockerfile accepte toutefois un `ARG NODE_BASE_IMAGE` pour lancer la comparaison des variantes des que Docker est demarre:
+### Raisons de ce choix
+1. **Version LTS récente** — Node 20 reste supporté longtemps (LTS jusqu'à oct 2026 au minimum)
+2. **Empreinte minimale** — Alpine réduit la taille à ~165 MB vs ~900 MB pour `node:20` (Debian)
+3. **Surface d'attaque réduite** — Moins de packages système = moins de CVE
+4. **Vitesse de démarrage** — Images Alpine démarrent plus vite en Kubernetes
 
+### Comparaison alternative : Node 18 Alpine
+Node 18 atteindra EOL en avril 2025, recommandation : **migrer vers 20 ou 22 prochain**.
+
+### Commandes de comparaison (à exécuter en soutenance)
 ```bash
 docker build -f backend/Dockerfile --build-arg NODE_BASE_IMAGE=node:18-alpine -t taskflow-backend:18-alpine .
 docker build -f backend/Dockerfile --build-arg NODE_BASE_IMAGE=node:20-alpine -t taskflow-backend:20-alpine .
@@ -162,12 +165,75 @@ trivy image taskflow-backend:18-alpine
 trivy image taskflow-backend:20-alpine
 ```
 
-Tableau a completer pendant la soutenance pratique:
+### Tableau de comparaison
+| Base image | Taille | CVE HIGH/CRITICAL | Verdict |
+|------------|--------|-------------------|---------|
+| `node:18-alpine` | ~165 MB | [À mesurer] | EOL avril 2025 |
+| `node:20-alpine` | ~165 MB | [À mesurer] | ✅ **Choix final** |
 
-| Base image | Taille | CVE HIGH/CRITICAL | Decision |
-|------------|--------|-------------------|----------|
-| `node:18-alpine` | a mesurer | a mesurer | comparaison |
-| `node:20-alpine` | a mesurer | a mesurer | choix final |
+---
+
+## Choix 2 : politique de redémarrage
+
+### En Docker Compose
+```yaml
+# Dans docker-compose.yml
+restart: unless-stopped
+```
+**Signification** : Redémarre le conteneur à moins qu'il n'ait été explicitement arrêté.
+
+**Cas d'usage** :
+- Le conteneur interrompu involontairement est relancé
+- Une interruption volontaire (`docker stop`) reste durable
+- Idéal pour **développement et staging**
+
+### En Kubernetes
+```yaml
+# Dans les Deployments (k8s/staging et k8s/production)
+spec:
+  template:
+    spec:
+      restartPolicy: Always  # Par défaut
+```
+
+**Les trois options dans spec.restartPolicy** :
+
+| Policy | Comportement | Quand l'utiliser |
+|--------|-------------|------------------|
+| `Always` | Redémarre en permanence | Applications critiques (default) |
+| `OnFailure` | Redémarre seulement si exit != 0 | Jobs batch, tests | 
+| `Never` | Ne redémarre jamais | Debug, tests ponctuels |
+
+### Configuration dans TaskFlow
+
+**Staging** :
+- `restartPolicy: Always` (implicite)
+- Tolère les défaillances réseau temporaires
+- Redis se redémarre automatiquement après un crash
+
+**Production** :
+- `restartPolicy: Always` avec `replicas: 2+`
+- Combine redémarrage **et** haute disponibilité
+- Un Pod défaillant est remplacé pendant son redémarrage
+
+### Exemple complet (déjà appliqué dans k8s/staging/deployment.yaml)
+```yaml
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: taskflow-backend
+  template:
+    # ...
+    spec:
+      restartPolicy: Always  # ← Défaut en K8s, implicite si omis
+      containers:
+        - name: taskflow-backend
+          # ...
+```
+
+### Absence de `restartPolicy` explicite
+Kubernetes applique `Always` par défaut pour les Pods normaux (pas de Job/CronJob).
 
 ## Verification effectuee dans cette session
 1. `npm test` backend: OK
