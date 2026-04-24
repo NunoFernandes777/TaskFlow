@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: taskflow-config
+  namespace: taskflow-production
+data:
+  APP_ENV: production
+  APP_VERSION: "production"
+  PORT: "3001"
+  API_UPSTREAM: http://taskflow-backend:3001

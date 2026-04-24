@@ -1,0 +1,60 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    environment:
+      API_UPSTREAM: http://backend:3001
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - frontend_net
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        NODE_BASE_IMAGE: ${BACKEND_NODE_IMAGE:-node:20-alpine}
+    environment:
+      PORT: ${PORT:-3001}
+      APP_ENV: ${APP_ENV:-development}
+      APP_VERSION: ${APP_VERSION:-1.0.0}
+      REDIS_URL: ${REDIS_URL:-redis://cache:6379}
+    expose:
+      - "3001"
+    depends_on:
+      cache:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - frontend_net
+      - backend_net
+
+  cache:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    expose:
+      - "6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - backend_net
+
+volumes:
+  redis-data:
+
+networks:
+  frontend_net:
+  backend_net:
+    internal: true

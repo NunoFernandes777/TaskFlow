@@ -1,18 +1,20 @@
-const http   = require("http");
-const redis  = require("redis");
+const http = require("http");
+const redis = require("redis");
 const crypto = require("crypto");
 
-try { require("dotenv").config(); } catch { /* dotenv optionnel */ }
+try {
+  require("dotenv").config();
+} catch {
+  // dotenv reste optionnel dans les environnements conteneurises.
+}
 
-const PORT        = process.env.PORT        || 3001;
-const APP_ENV     = process.env.APP_ENV     || "development";
+const PORT = process.env.PORT || 3001;
+const APP_ENV = process.env.APP_ENV || "development";
 const APP_VERSION = process.env.APP_VERSION || "1.0.0";
-const REDIS_URL   = process.env.REDIS_URL   || "redis://127.0.0.1:6379";
+const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
 
-const client = redis.createClient({ url: REDIS_URL });
-client.on("error", (err) => console.error("Redis error:", err.message));
-
-// ── Utilitaires ──────────────────────────────────────────────────────
+const VALID_STATUSES = ["todo", "in-progress", "done"];
+const VALID_PRIORITIES = ["low", "medium", "high"];
 
 function genId() {
   return crypto.randomBytes(6).toString("hex");
@@ -21,182 +23,303 @@ function genId() {
 function parseBody(req) {
   return new Promise((resolve, reject) => {
     let body = "";
-    req.on("data", (c) => (body += c));
+
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
+
     req.on("end", () => {
-      try { resolve(body ? JSON.parse(body) : {}); }
-      catch { reject(new Error("JSON invalide")); }
+      try {
+        resolve(body ? JSON.parse(body) : {});
+      } catch {
+        reject(new Error("JSON invalide"));
+      }
     });
   });
 }
 
 function json(res, status, data) {
   res.writeHead(status, {
-    "Content-Type":                "application/json; charset=utf-8",
+    "Content-Type": "application/json; charset=utf-8",
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods":"GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers":"Content-Type",
-    "X-App-Version":               APP_VERSION,
-    "X-App-Env":                   APP_ENV,
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "X-App-Version": APP_VERSION,
+    "X-App-Env": APP_ENV,
   });
+
   res.end(JSON.stringify(data));
 }
 
-const VALID_STATUSES   = ["todo", "in-progress", "done"];
-const VALID_PRIORITIES = ["low", "medium", "high"];
+function createRedisClient(url = REDIS_URL) {
+  const client = redis.createClient({ url });
+  client.on("error", (err) => console.error("Redis error:", err.message));
+  return client;
+}
 
-// ── Logique tâches ───────────────────────────────────────────────────
+function createTaskStore(client) {
+  return {
+    async getTasks() {
+      const keys = await client.keys("task:*");
+      if (!keys.length) {
+        return [];
+      }
 
-async function getTasks() {
-  const keys = await client.keys("task:*");
-  if (!keys.length) return [];
-  const tasks = await Promise.all(
-    keys.map(async (k) => {
-      const t = await client.hGetAll(k);
+      const tasks = await Promise.all(
+        keys.map(async (key) => {
+          const task = await client.hGetAll(key);
+          return {
+            id: key.replace("task:", ""),
+            title: task.title,
+            description: task.description || "",
+            status: task.status || "todo",
+            priority: task.priority || "medium",
+            createdAt: task.createdAt,
+            updatedAt: task.updatedAt || task.createdAt,
+          };
+        })
+      );
+
+      return tasks.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    },
+
+    async getTask(id) {
+      const task = await client.hGetAll(`task:${id}`);
+      if (!task.title) {
+        return null;
+      }
+
+      return { id, ...task };
+    },
+
+    async createTask({ title, description, priority }) {
+      if (!title || !title.trim()) {
+        throw new Error("Le titre est requis");
+      }
+
+      if (priority && !VALID_PRIORITIES.includes(priority)) {
+        throw new Error("Priorite invalide : low, medium ou high");
+      }
+
+      const id = genId();
+      const now = new Date().toISOString();
+      const normalizedTitle = title.trim();
+      const normalizedDescription = description ? description.trim() : "";
+      const normalizedPriority = priority || "medium";
+
+      await client.hSet(`task:${id}`, {
+        title: normalizedTitle,
+        description: normalizedDescription,
+        status: "todo",
+        priority: normalizedPriority,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await client.incr("stats:total_created");
+
       return {
-        id:          k.replace("task:", ""),
-        title:       t.title,
-        description: t.description || "",
-        status:      t.status      || "todo",
-        priority:    t.priority    || "medium",
-        createdAt:   t.createdAt,
-        updatedAt:   t.updatedAt   || t.createdAt,
+        id,
+        title: normalizedTitle,
+        description: normalizedDescription,
+        status: "todo",
+        priority: normalizedPriority,
+        createdAt: now,
+        updatedAt: now,
       };
-    })
-  );
-  return tasks.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    },
+
+    async updateTask(id, { title, description, status, priority }) {
+      const exists = await client.exists(`task:${id}`);
+      if (!exists) {
+        return null;
+      }
+
+      if (status && !VALID_STATUSES.includes(status)) {
+        throw new Error("Statut invalide : todo, in-progress ou done");
+      }
+
+      if (priority && !VALID_PRIORITIES.includes(priority)) {
+        throw new Error("Priorite invalide : low, medium ou high");
+      }
+
+      const now = new Date().toISOString();
+      const updates = { updatedAt: now };
+
+      if (title !== undefined) {
+        updates.title = title.trim();
+      }
+
+      if (description !== undefined) {
+        updates.description = description.trim();
+      }
+
+      if (status !== undefined) {
+        updates.status = status;
+        if (status === "done") {
+          await client.incr("stats:total_completed");
+        }
+      }
+
+      if (priority !== undefined) {
+        updates.priority = priority;
+      }
+
+      await client.hSet(`task:${id}`, updates);
+      return this.getTask(id);
+    },
+
+    async deleteTask(id) {
+      const deleted = await client.del(`task:${id}`);
+      return deleted > 0;
+    },
+  };
 }
 
-async function getTask(id) {
-  const t = await client.hGetAll(`task:${id}`);
-  if (!t.title) return null;
-  return { id, ...t };
+async function getHealthPayload(client) {
+  const redisConnected = client.isOpen;
+  const totalCreated = redisConnected ? await client.get("stats:total_created") : "0";
+  const totalCompleted = redisConnected ? await client.get("stats:total_completed") : "0";
+
+  return {
+    status: redisConnected ? "ok" : "degraded",
+    env: APP_ENV,
+    version: APP_VERSION,
+    redis: redisConnected ? "connected" : "disconnected",
+    stats: {
+      totalCreated: parseInt(totalCreated || "0", 10),
+      totalCompleted: parseInt(totalCompleted || "0", 10),
+    },
+  };
 }
 
-async function createTask({ title, description, priority }) {
-  if (!title?.trim()) throw new Error("Le titre est requis");
-  if (priority && !VALID_PRIORITIES.includes(priority)) {
-    throw new Error("Priorité invalide : low, medium ou high");
-  }
-  const id  = genId();
-  const now = new Date().toISOString();
-  await client.hSet(`task:${id}`, {
-    title:       title.trim(),
-    description: description?.trim() || "",
-    status:      "todo",
-    priority:    priority || "medium",
-    createdAt:   now,
-    updatedAt:   now,
+function createServer(client) {
+  const store = createTaskStore(client);
+
+  return http.createServer(async (req, res) => {
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+      });
+      res.end();
+      return;
+    }
+
+    const url = req.url.split("?")[0];
+
+    if (req.method === "GET" && url === "/health") {
+      try {
+        const payload = await getHealthPayload(client);
+        json(res, payload.status === "ok" ? 200 : 503, payload);
+      } catch (error) {
+        json(res, 503, {
+          status: "error",
+          env: APP_ENV,
+          version: APP_VERSION,
+          redis: "unavailable",
+          error: error.message,
+        });
+      }
+      return;
+    }
+
+    if (req.method === "GET" && url === "/tasks") {
+      const tasks = await store.getTasks();
+      json(res, 200, { total: tasks.length, tasks });
+      return;
+    }
+
+    if (req.method === "POST" && url === "/tasks") {
+      try {
+        const body = await parseBody(req);
+        const task = await store.createTask(body);
+        json(res, 201, task);
+      } catch (error) {
+        json(res, 400, { error: error.message });
+      }
+      return;
+    }
+
+    const matchPut = url.match(/^\/tasks\/([a-f0-9]{12})$/);
+    if (req.method === "PUT" && matchPut) {
+      try {
+        const body = await parseBody(req);
+        const task = await store.updateTask(matchPut[1], body);
+        if (!task) {
+          json(res, 404, { error: "Tache introuvable" });
+          return;
+        }
+
+        json(res, 200, task);
+      } catch (error) {
+        json(res, 400, { error: error.message });
+      }
+      return;
+    }
+
+    const matchDelete = url.match(/^\/tasks\/([a-f0-9]{12})$/);
+    if (req.method === "DELETE" && matchDelete) {
+      const deleted = await store.deleteTask(matchDelete[1]);
+      if (!deleted) {
+        json(res, 404, { error: "Tache introuvable" });
+        return;
+      }
+
+      json(res, 200, { message: "Tache supprimee" });
+      return;
+    }
+
+    json(res, 404, { error: "Route introuvable" });
   });
-  await client.incr("stats:total_created");
-  return { id, title: title.trim(), description: description?.trim() || "", status: "todo", priority: priority || "medium", createdAt: now };
 }
 
-async function updateTask(id, { title, description, status, priority }) {
-  const exists = await client.exists(`task:${id}`);
-  if (!exists) return null;
-  if (status   && !VALID_STATUSES.includes(status))   throw new Error("Statut invalide : todo, in-progress ou done");
-  if (priority && !VALID_PRIORITIES.includes(priority)) throw new Error("Priorité invalide : low, medium ou high");
-  const now     = new Date().toISOString();
-  const updates = { updatedAt: now };
-  if (title       !== undefined) updates.title       = title.trim();
-  if (description !== undefined) updates.description = description.trim();
-  if (status      !== undefined) {
-    updates.status = status;
-    if (status === "done") await client.incr("stats:total_completed");
-  }
-  if (priority !== undefined) updates.priority = priority;
-  await client.hSet(`task:${id}`, updates);
-  return getTask(id);
-}
+async function startServer() {
+  const client = createRedisClient();
+  await client.connect();
 
-async function deleteTask(id) {
-  const deleted = await client.del(`task:${id}`);
-  return deleted > 0;
-}
+  const server = createServer(client);
 
-// ── Serveur HTTP ─────────────────────────────────────────────────────
-
-const server = http.createServer(async (req, res) => {
-  if (req.method === "OPTIONS") {
-    res.writeHead(204, {
-      "Access-Control-Allow-Origin":  "*",
-      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
+  await new Promise((resolve) => {
+    server.listen(PORT, () => {
+      console.log(`TaskFlow API - env: ${APP_ENV}, version: ${APP_VERSION}, port: ${PORT}`);
+      console.log(`Redis connecte sur ${REDIS_URL}`);
+      resolve();
     });
-    res.end();
-    return;
-  }
-
-  const url = req.url.split("?")[0];
-
-  // GET /health
-  if (req.method === "GET" && url === "/health") {
-    const totalCreated   = await client.get("stats:total_created").catch(() => "0");
-    const totalCompleted = await client.get("stats:total_completed").catch(() => "0");
-    json(res, 200, {
-      status:  "ok",
-      env:     APP_ENV,
-      version: APP_VERSION,
-      redis:   "connected",
-      stats: {
-        totalCreated:   parseInt(totalCreated   || "0"),
-        totalCompleted: parseInt(totalCompleted || "0"),
-      },
-    });
-    return;
-  }
-
-  // GET /tasks
-  if (req.method === "GET" && url === "/tasks") {
-    const tasks = await getTasks();
-    json(res, 200, { total: tasks.length, tasks });
-    return;
-  }
-
-  // POST /tasks
-  if (req.method === "POST" && url === "/tasks") {
-    try {
-      const body = await parseBody(req);
-      const task = await createTask(body);
-      json(res, 201, task);
-    } catch (e) { json(res, 400, { error: e.message }); }
-    return;
-  }
-
-  // PUT /tasks/:id
-  const matchPut = url.match(/^\/tasks\/([a-f0-9]{12})$/);
-  if (req.method === "PUT" && matchPut) {
-    try {
-      const body = await parseBody(req);
-      const task = await updateTask(matchPut[1], body);
-      if (!task) { json(res, 404, { error: "Tâche introuvable" }); return; }
-      json(res, 200, task);
-    } catch (e) { json(res, 400, { error: e.message }); }
-    return;
-  }
-
-  // DELETE /tasks/:id
-  const matchDel = url.match(/^\/tasks\/([a-f0-9]{12})$/);
-  if (req.method === "DELETE" && matchDel) {
-    const deleted = await deleteTask(matchDel[1]);
-    if (!deleted) { json(res, 404, { error: "Tâche introuvable" }); return; }
-    json(res, 200, { message: "Tâche supprimée" });
-    return;
-  }
-
-  json(res, 404, { error: "Route introuvable" });
-});
-
-// ── Démarrage ────────────────────────────────────────────────────────
-
-client.connect().then(() => {
-  console.log(`Redis connecté sur ${REDIS_URL}`);
-  server.listen(PORT, () => {
-    console.log(`TaskFlow API — env: ${APP_ENV}, version: ${APP_VERSION}, port: ${PORT}`);
   });
-}).catch((err) => {
-  console.error("Impossible de démarrer:", err.message);
-  process.exit(1);
-});
 
-module.exports = { server, genId, VALID_STATUSES, VALID_PRIORITIES };
+  const shutdown = async (signal) => {
+    console.log(`Signal recu: ${signal}. Arret en cours...`);
+
+    await new Promise((resolve) => {
+      server.close(() => resolve());
+    });
+
+    if (client.isOpen) {
+      await client.quit();
+    }
+
+    process.exit(0);
+  };
+
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+
+  return { server, client };
+}
+
+if (require.main === module) {
+  startServer().catch((error) => {
+    console.error("Impossible de demarrer:", error.message);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  VALID_PRIORITIES,
+  VALID_STATUSES,
+  createRedisClient,
+  createServer,
+  genId,
+  startServer,
+};

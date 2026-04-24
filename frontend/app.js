@@ -1,20 +1,19 @@
-const API = window.API_URL || "http://localhost:3001";
+const API = window.API_URL || "/api";
 let allTasks = [];
 let currentFilter = "all";
 
-// ============= FETCH FUNCTIONS =============
 async function fetchHealth() {
   try {
     const response = await fetch(`${API}/health`);
     const data = await response.json();
     const badge = document.getElementById("status-badge");
-    badge.textContent = `✅ ${data.env} · v${data.version} · Redis ${data.redis}`;
-    badge.className = "status-ok";
+    badge.textContent = `API ${data.env} - v${data.version} - Redis ${data.redis}`;
+    badge.className = data.status === "ok" ? "status-ok" : "status-err";
     document.getElementById("version-info").textContent =
-      `TaskFlow v${data.version} · ${data.stats.totalCreated} créées, ${data.stats.totalCompleted} terminées`;
+      `TaskFlow v${data.version} - ${data.stats.totalCreated} creees, ${data.stats.totalCompleted} terminees`;
   } catch {
     const badge = document.getElementById("status-badge");
-    badge.textContent = "❌ API indisponible";
+    badge.textContent = "API indisponible";
     badge.className = "status-err";
   }
 }
@@ -26,50 +25,53 @@ async function fetchTasks() {
     allTasks = data.tasks || [];
     renderBoard();
   } catch (error) {
-    console.error("Erreur lors du chargement des tâches:", error);
+    console.error("Erreur lors du chargement des taches:", error);
   }
 }
 
-// ============= FILTER FUNCTIONS =============
 function setFilter(filter, buttonElement) {
   currentFilter = filter;
-  document.querySelectorAll(".filter-btn").forEach(btn => btn.classList.remove("active"));
+  document.querySelectorAll(".filter-btn").forEach((button) => button.classList.remove("active"));
   buttonElement.classList.add("active");
   renderBoard();
 }
 
 function getFilteredTasks() {
-  if (currentFilter === "all") return allTasks;
-  return allTasks.filter(task => task.priority === currentFilter);
+  if (currentFilter === "all") {
+    return allTasks;
+  }
+
+  return allTasks.filter((task) => task.priority === currentFilter);
 }
 
-// ============= RENDER FUNCTIONS =============
 function renderBoard() {
   const filteredTasks = getFilteredTasks();
-  const todoTasks = filteredTasks.filter(t => t.status === "todo");
-  const inProgressTasks = filteredTasks.filter(t => t.status === "in-progress");
-  const doneTasks = filteredTasks.filter(t => t.status === "done");
+  const todoTasks = filteredTasks.filter((task) => task.status === "todo");
+  const inProgressTasks = filteredTasks.filter((task) => task.status === "in-progress");
+  const doneTasks = filteredTasks.filter((task) => task.status === "done");
 
-  // Update counts
   document.getElementById("count-todo").textContent = todoTasks.length;
   document.getElementById("count-inprogress").textContent = inProgressTasks.length;
   document.getElementById("count-done").textContent = doneTasks.length;
-  document.getElementById("task-count").textContent = `${filteredTasks.length} tâche(s)`;
+  document.getElementById("task-count").textContent = `${filteredTasks.length} tache(s)`;
 
-  // Update stats (global, not filtered)
-  document.getElementById("stat-todo").textContent = allTasks.filter(t => t.status === "todo").length;
-  document.getElementById("stat-inprogress").textContent = allTasks.filter(t => t.status === "in-progress").length;
-  document.getElementById("stat-done").textContent = allTasks.filter(t => t.status === "done").length;
+  document.getElementById("stat-todo").textContent = allTasks.filter((task) => task.status === "todo").length;
+  document.getElementById("stat-inprogress").textContent = allTasks.filter((task) => task.status === "in-progress").length;
+  document.getElementById("stat-done").textContent = allTasks.filter((task) => task.status === "done").length;
   document.getElementById("stat-total").textContent = allTasks.length;
 
-  // Render columns
   document.getElementById("col-todo").innerHTML = todoTasks.map(createTaskCard).join("") || createEmptyState();
   document.getElementById("col-inprogress").innerHTML = inProgressTasks.map(createTaskCard).join("") || createEmptyState();
   document.getElementById("col-done").innerHTML = doneTasks.map(createTaskCard).join("") || createEmptyState();
 }
 
 function createTaskCard(task) {
-  const priorityLabels = { low: "Basse", medium: "Moyenne", high: "Haute" };
+  const priorityLabels = {
+    low: "Basse",
+    medium: "Moyenne",
+    high: "Haute",
+  };
+
   const priorityLabel = priorityLabels[task.priority] || task.priority;
 
   return `
@@ -79,11 +81,11 @@ function createTaskCard(task) {
       <div class="task-footer">
         <span class="prio-badge">${priorityLabel}</span>
         <select class="status-select" onchange="changeStatus('${task.id}', this.value)">
-          <option value="todo" ${task.status === "todo" ? "selected" : ""}>À faire</option>
+          <option value="todo" ${task.status === "todo" ? "selected" : ""}>A faire</option>
           <option value="in-progress" ${task.status === "in-progress" ? "selected" : ""}>En cours</option>
-          <option value="done" ${task.status === "done" ? "selected" : ""}>Terminé</option>
+          <option value="done" ${task.status === "done" ? "selected" : ""}>Termine</option>
         </select>
-        <button class="btn-icon btn-del" onclick="deleteTask('${task.id}')" title="Supprimer">✕</button>
+        <button class="btn-icon btn-del" onclick="deleteTask('${task.id}')" title="Supprimer">x</button>
       </div>
     </div>
   `;
@@ -92,13 +94,12 @@ function createTaskCard(task) {
 function createEmptyState() {
   return `
     <div class="empty">
-      <div class="empty-icon">○</div>
-      <div>Aucune tâche</div>
+      <div class="empty-icon">o</div>
+      <div>Aucune tache</div>
     </div>
   `;
 }
 
-// ============= TASK OPERATIONS =============
 async function addTask() {
   const titleInput = document.getElementById("input-title");
   const descInput = document.getElementById("input-desc");
@@ -117,7 +118,7 @@ async function addTask() {
     await fetch(`${API}/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, description, priority })
+      body: JSON.stringify({ title, description, priority }),
     });
 
     titleInput.value = "";
@@ -125,7 +126,7 @@ async function addTask() {
     fetchTasks();
     fetchHealth();
   } catch (error) {
-    console.error("Erreur lors de l'ajout de la tâche:", error);
+    console.error("Erreur lors de l'ajout de la tache:", error);
   }
 }
 
@@ -134,46 +135,45 @@ async function changeStatus(taskId, newStatus) {
     await fetch(`${API}/tasks/${taskId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: newStatus })
+      body: JSON.stringify({ status: newStatus }),
     });
     fetchTasks();
     fetchHealth();
   } catch (error) {
-    console.error("Erreur lors de la mise à jour du statut:", error);
+    console.error("Erreur lors de la mise a jour du statut:", error);
   }
 }
 
 async function deleteTask(taskId) {
-  if (confirm("Êtes-vous sûr de vouloir supprimer cette tâche ?")) {
+  if (window.confirm("Etes-vous sur de vouloir supprimer cette tache ?")) {
     try {
       await fetch(`${API}/tasks/${taskId}`, { method: "DELETE" });
       fetchTasks();
+      fetchHealth();
     } catch (error) {
       console.error("Erreur lors de la suppression:", error);
     }
   }
 }
 
-// ============= UTILITIES =============
 function escapeHtml(text) {
   const map = {
     "&": "&amp;",
     "<": "&lt;",
     ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#039;"
+    "\"": "&quot;",
+    "'": "&#039;",
   };
-  return text.replace(/[&<>"']/g, char => map[char]);
+
+  return text.replace(/[&<>"']/g, (character) => map[character]);
 }
 
-// ============= EVENT LISTENERS =============
 document.getElementById("input-title").addEventListener("keypress", (event) => {
   if (event.key === "Enter") {
     addTask();
   }
 });
 
-// ============= INITIALIZATION =============
 fetchHealth();
 fetchTasks();
 setInterval(fetchHealth, 30000);

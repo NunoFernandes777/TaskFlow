@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: taskflow-production
+  labels:
+    app.kubernetes.io/name: taskflow
+    app.kubernetes.io/environment: production

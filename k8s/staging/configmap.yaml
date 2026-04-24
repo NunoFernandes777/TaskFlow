@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: taskflow-config
+  namespace: taskflow-staging
+data:
+  APP_ENV: staging
+  APP_VERSION: "staging"
+  PORT: "3001"
+  API_UPSTREAM: http://taskflow-backend:3001
