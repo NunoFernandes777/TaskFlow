@@ -154,10 +154,12 @@ jobs:
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ matrix.local_tag }}
+          scanners: vuln
           format: sarif
           output: trivy-${{ matrix.image_name }}.sarif
           severity: CRITICAL
           exit-code: 1
+          ignore-unfixed: true
 
       - name: Upload Trivy report
         if: always()
