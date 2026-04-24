@@ -148,9 +148,8 @@ jobs:
           load: true
           tags: ${{ matrix.local_tag }}
 
-      - name: Run Trivy scan
-        id: trivy
-        continue-on-error: true
+      - name: Generate Trivy SARIF report
+        id: trivy_report
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ matrix.local_tag }}
@@ -158,8 +157,18 @@ jobs:
           format: sarif
           output: trivy-${{ matrix.image_name }}.sarif
           severity: CRITICAL
-          exit-code: 1
+          exit-code: 0
           ignore-unfixed: true
+
+      - name: Run Trivy gate
+        shell: bash
+        run: |
+          trivy image \
+            --scanners vuln \
+            --severity CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            ${{ matrix.local_tag }}
 
       - name: Upload Trivy report
         if: always()
@@ -168,13 +177,6 @@ jobs:
           name: trivy-${{ matrix.image_name }}-${{ github.ref_name }}
           path: trivy-${{ matrix.image_name }}.sarif
           if-no-files-found: warn
-
-      - name: Fail build if critical vulnerabilities were found
-        if: steps.trivy.outcome != 'success'
-        shell: bash
-        run: |
-          echo "Trivy detected CRITICAL vulnerabilities in ${{ matrix.image_name }}."
-          exit 1
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
