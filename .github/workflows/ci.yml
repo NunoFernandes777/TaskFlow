@@ -192,3 +192,54 @@ jobs:
           push: true
           tags: |
             ${{ steps.version.outputs.dockerhub_image }}
+
+  deploy-staging:
+    name: Deploy staging
+    runs-on: ubuntu-latest
+    needs:
+      - lint
+      - audit
+    if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
+    environment:
+      name: staging
+    env:
+      KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_STAGING }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      STAGING_NAMESPACE: taskflow-staging
+    steps:
+      - name: Checkout repository
+        if: env.KUBE_CONFIG_B64 != ''
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        if: env.KUBE_CONFIG_B64 != ''
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        if: env.KUBE_CONFIG_B64 != ''
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "$KUBE_CONFIG_B64" | base64 -d > "$HOME/.kube/config"
+
+      - name: Apply staging manifests
+        if: env.KUBE_CONFIG_B64 != ''
+        run: kubectl apply -f k8s/staging
+
+      - name: Update staging images
+        if: env.KUBE_CONFIG_B64 != ''
+        shell: bash
+        run: |
+          kubectl set image deployment/taskflow-backend taskflow-backend=${DOCKERHUB_USERNAME}/taskflow-backend:latest -n ${STAGING_NAMESPACE}
+          kubectl set image deployment/taskflow-frontend taskflow-frontend=${DOCKERHUB_USERNAME}/taskflow-frontend:latest -n ${STAGING_NAMESPACE}
+
+      - name: Wait for staging rollout
+        if: env.KUBE_CONFIG_B64 != ''
+        shell: bash
+        run: |
+          kubectl rollout status deployment/taskflow-backend -n ${STAGING_NAMESPACE} --timeout=180s
+          kubectl rollout status deployment/taskflow-frontend -n ${STAGING_NAMESPACE} --timeout=180s
+
+      - name: Skip deployment when secret is absent
+        if: env.KUBE_CONFIG_B64 == ''
+        run: echo "KUBE_CONFIG_STAGING is not configured; staging deployment skipped."
