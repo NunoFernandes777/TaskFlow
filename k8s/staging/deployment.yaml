@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: taskflow-frontend
-          image: ghcr.io/your-org-or-user/taskflow-frontend:staging
+          image: taskflow-frontend:staging
           ports:
             - containerPort: 80
           env:
@@ -71,7 +71,7 @@ spec:
     spec:
       containers:
         - name: taskflow-backend
-          image: ghcr.io/your-org-or-user/taskflow-backend:staging
+          image: taskflow-backend:staging
           ports:
             - containerPort: 3001
           envFrom:
@@ -116,7 +116,7 @@ spec:
     spec:
       containers:
         - name: taskflow-redis
-          image: redis:7-alpine
+          image: redis:7
           args:
             - redis-server
             - --appendonly

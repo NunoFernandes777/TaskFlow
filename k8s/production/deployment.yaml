@@ -8,6 +8,11 @@ spec:
   selector:
     matchLabels:
       app: taskflow-frontend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   template:
     metadata:
       labels:
@@ -15,7 +20,7 @@ spec:
     spec:
       containers:
         - name: taskflow-frontend
-          image: ghcr.io/your-org-or-user/taskflow-frontend:latest
+          image: tonusername/taskflow-frontend:latest
           ports:
             - containerPort: 80
           env:
@@ -50,10 +55,15 @@ metadata:
   name: taskflow-backend
   namespace: taskflow-production
 spec:
-  replicas: 2
+  replicas: 3
   selector:
     matchLabels:
       app: taskflow-backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   template:
     metadata:
       labels:
@@ -61,7 +71,7 @@ spec:
     spec:
       containers:
         - name: taskflow-backend
-          image: ghcr.io/your-org-or-user/taskflow-backend:latest
+          image: tonusername/taskflow-backend:latest
           ports:
             - containerPort: 3001
           envFrom:
@@ -99,6 +109,11 @@ spec:
   selector:
     matchLabels:
       app: taskflow-redis
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   template:
     metadata:
       labels:

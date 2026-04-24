@@ -36,7 +36,7 @@ services:
       - backend_net
 
   cache:
-    image: redis:7-alpine
+    image: redis:7
     command: ["redis-server", "--appendonly", "yes"]
     expose:
       - "6379"

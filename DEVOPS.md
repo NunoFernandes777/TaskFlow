@@ -30,6 +30,21 @@ Cette separation limite les conflits de fichiers: `backend/`, `frontend/`, `dock
 - `HEALTHCHECK` sur `GET /health`.
 - Labels OCI pour la tracabilite.
 
+## Choix 1 — Image de base backend
+
+| Image          | Taille  | CRITICAL | HIGH (OS) | HIGH (Node.js) |
+|----------------|---------|----------|-----------|----------------|
+| node:18-alpine | 191 MB  | 4        | 15        | 11             |
+| node:20-alpine | 209 MB  | 4        | 15        | 0              |
+
+Choix retenu : node:20-alpine
+- LTS actif (support jusqu'en avril 2026 vs fin de vie pour node:18)
+- 11 CVE HIGH de moins côté npm (cross-spawn, glob, minimatch, tar corrigés)
+- Les 4 CRITICAL sont dans libcrypto3/libssl3 (Alpine 3.21.3), présents
+  sur les deux images — fix disponible via mise à jour de l'image de base
+- Le pipeline utilise ignore-unfixed pour ne bloquer que sur les CRITICAL
+  sans correctif disponible
+
 ### Frontend
 - Fichier: `frontend/Dockerfile`
 - Base `nginx:alpine`.

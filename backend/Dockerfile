@@ -12,9 +12,9 @@ RUN apk add --no-cache wget \
     && addgroup -S taskflow \
     && adduser -S taskflow -G taskflow
 
-COPY --from=deps /app/node_modules ./node_modules
-COPY backend/package*.json ./
-COPY backend/server.js ./
+COPY --from=deps --chown=taskflow:taskflow /app/node_modules ./node_modules
+COPY --chown=taskflow:taskflow backend/package*.json ./
+COPY --chown=taskflow:taskflow backend/server.js ./
 
 LABEL org.opencontainers.image.authors="TaskFlow DevOps team" \
       org.opencontainers.image.source="https://github.com/[FORMATEUR]/taskflow" \
@@ -26,7 +26,6 @@ EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD wget -q -O- http://127.0.0.1:3001/health || exit 1
 
-RUN chown -R taskflow:taskflow /app
 USER taskflow
 
 CMD ["node", "server.js"]

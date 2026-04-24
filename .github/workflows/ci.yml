@@ -14,7 +14,6 @@ on:
       - develop
 
 env:
-  REGISTRY: ghcr.io
   NODE_CACHE_DIR: ~/.npm
 
 jobs:
@@ -47,6 +46,7 @@ jobs:
 
   lint:
     name: Lint (blocking)
+    needs: test
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -70,6 +70,7 @@ jobs:
 
   audit:
     name: Security audit
+    needs: test
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -112,3 +113,61 @@ jobs:
         run: |
           echo "npm audit detected HIGH or CRITICAL vulnerabilities."
           exit 1
+
+  build:
+    name: Build backend Docker image
+    needs: [test, lint, audit]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build backend Docker image
+        run: |
+          docker build -t taskflow-backend:ci -f backend/Dockerfile .
+
+  deploy-staging:
+    name: Deploy to Staging
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG_STAGING }}" > ~/.kube/config
+
+      - name: Apply manifests
+        run: |
+          kubectl apply -f k8s/staging/
+
+  smoke-test:
+    name: Smoke test (backend /health)
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG_STAGING }}" > ~/.kube/config
+
+      - name: Wait for backend rollout
+        run: |
+          kubectl rollout status deployment/taskflow-backend -n taskflow-staging
+
+      - name: Test /health endpoint
+        run: |
+          kubectl run tmp --rm -i --restart=Never \
+            --image=curlimages/curl \
+            -- curl -s http://taskflow-backend.taskflow-staging.svc.cluster.local:3001/health
