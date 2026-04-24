@@ -111,8 +111,8 @@ jobs:
         shell: bash
         run: |
           echo "npm audit detected HIGH or CRITICAL vulnerabilities."
-<<<<<<< HEAD
           exit 1
+          
 
   build:
     name: Build and scan ${{ matrix.image_name }}
@@ -246,6 +246,4 @@ jobs:
       - name: Skip deployment when secret is absent
         if: env.KUBE_CONFIG_B64 == ''
         run: echo "KUBE_CONFIG_STAGING is not configured; staging deployment skipped."
-=======
           exit 1
->>>>>>> efc225a7169a0d76b8c7d5c015a1e3499af2b104
